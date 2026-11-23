@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebView Bridge demo</title>
+<style>
+  :root { --ink:#16202a; --muted:#5b6875; --line:#e3e6e9; --accent:#0e6b8c; --bg:#fbfaf7; }
+  @media (prefers-color-scheme: dark) { :root { --ink:#e8edf1; --muted:#9aa7b2; --line:#25303a; --accent:#5cc3e0; --bg:#0f1418; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 20px 16px 40px; font: 16px/1.5 system-ui, sans-serif; color: var(--ink); background: var(--bg); }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p.lead { margin: 0 0 18px; color: var(--muted); }
+  section { border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
+  h2 { font-size: 16px; margin: 0 0 10px; }
+  button, a.button { display: inline-block; margin: 0 8px 8px 0; padding: 9px 14px; border-radius: 999px; border: 1px solid var(--accent);
+    background: transparent; color: var(--accent); font: 600 14px system-ui, sans-serif; text-decoration: none; cursor: pointer; }
+  input { width: 100%; padding: 8px 10px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--ink); font: 14px ui-monospace, monospace; }
+  #status { font-size: 14px; color: var(--muted); }
+  pre { white-space: pre-wrap; word-break: break-all; font: 12px/1.45 ui-monospace, monospace; background: rgba(127,127,127,.08); padding: 10px; border-radius: 8px; max-height: 260px; overflow: auto; }
+</style>
+</head>
+<body>
+<h1>WebView Bridge demo</h1>
+<p class="lead" id="status">Checking for the bridge…</p>
+
+<section>
+  <h2>Print</h2>
+  <button onclick="window.print()">window.print()</button>
+</section>
+
+<section>
+  <h2>Downloads</h2>
+  <button id="csv">CSV from a Blob</button>
+  <button id="png">PNG from a canvas</button>
+  <button id="big">3 MB file</button>
+  <a class="button" id="json-link" download="settings.json"
+     href="data:application/json;base64,eyJ0aGVtZSI6ImRhcmsiLCJsYW5ndWFnZSI6ImVuIn0=">data: link</a>
+</section>
+
+<section>
+  <h2>Google Play Billing</h2>
+  <input id="inapp" placeholder="In-app product ids, comma separated">
+  <input id="subs" placeholder="Subscription ids, comma separated">
+  <button id="products">Get products</button>
+  <button id="buy">Buy first product</button>
+  <button id="owned">Get purchases</button>
+</section>
+
+<pre id="log"></pre>
+
+<script>
+  var log = function (label, value) {
+    var line = label + (value === undefined ? '' : ': ' + (typeof value === 'string' ? value : JSON.stringify(value, null, 2)));
+    var el = document.getElementById('log');
+    el.textContent = line + '\n\n' + el.textContent;
+  };
+  var fail = function (label) { return function (error) { log(label + ' failed', (error.code || '') + ' ' + error.message); }; };
+
+  var bridge = window.TechoshipBridge;
+  document.getElementById('status').textContent = bridge
+    ? 'Bridge ' + bridge.version + ' · features: ' + bridge.features.join(', ')
+    : 'No bridge: open this page inside the sample app.';
+
+  // The common pattern in web apps: build a file in memory, click a throwaway link, revoke at once.
+  var saveWithLink = function (blob, name) {
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  document.getElementById('csv').onclick = function () {
+    saveWithLink(new Blob(['name,amount\nCoffee,3.50\nLunch,12.00\n'], { type: 'text/csv' }), 'expenses.csv');
+  };
+
+  document.getElementById('png').onclick = function () {
+    var canvas = document.createElement('canvas');
+    canvas.width = 400; canvas.height = 240;
+    var ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#0e6b8c'; ctx.fillRect(0, 0, 400, 240);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 32px sans-serif'; ctx.fillText('Saved from a canvas', 24, 130);
+    canvas.toBlob(function (blob) { saveWithLink(blob, 'canvas.png'); }, 'image/png');
+  };
+
+  document.getElementById('big').onclick = function () {
+    var bytes = new Uint8Array(3 * 1024 * 1024);
+    for (var i = 0; i < bytes.length; i++) bytes[i] = (i * 31) % 251;
+    bridge.download(new Blob([bytes], { type: 'application/octet-stream' }), 'three-megabytes.bin')
+      .then(function (saved) { log('Saved', saved); }, fail('Download'));
+  };
+
+  // Billing
+  var ids = function (id) {
+    return document.getElementById(id).value.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+  };
+  var products = [];
+  if (window.AndroidBilling) {
+    AndroidBilling.onPurchasesUpdated(function (update) { log('purchasesUpdated', update); });
+  }
+  document.getElementById('products').onclick = function () {
+    if (!window.AndroidBilling) return log('Billing is not available');
+    AndroidBilling.getProducts({ inapp: ids('inapp'), subs: ids('subs') }).then(function (result) {
+      products = result.products;
+      log('Products', result);
+    }, fail('getProducts'));
+  };
+  document.getElementById('buy').onclick = function () {
+    if (!products.length) return log('Load products first');
+    AndroidBilling.purchase(products[0].productId).then(function (result) {
+      log('Purchase', result);
+      // In a real app: send result.purchases[i].purchaseToken to your server to verify and grant,
+      // then acknowledge (or consume, for consumables).
+    }, fail('purchase'));
+  };
+  document.getElementById('owned').onclick = function () {
+    if (!window.AndroidBilling) return log('Billing is not available');
+    AndroidBilling.getPurchases().then(function (result) { log('Purchases', result); }, fail('getPurchases'));
+  };
+</script>
+</body>
+</html>
