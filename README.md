@@ -142,8 +142,12 @@ Errors are ordinary `Error`s with a `code`, such as `too_large`, `permission_req
   in [`sample/`](sample/), run on Android 16 with WebView 157. The tests cover a revoked blob link,
   a 3 MB multi-chunk file checked byte for byte, a `data:` link, the base64 fallback, the size
   limit and an unregistered method.
-- **Billing:** the full purchase flow needs an app published to a Play Console testing track with
-  licence testers, so it isn't covered by the automated tests yet. Issues and reports are welcome.
+- **Used in production:** [Qorvyn Run](https://play.google.com/store/apps/details?id=com.techoship.qorvynrun)
+  sells its Full Game through `webview-bridge-billing` (from version 1.0.9 on Google Play). On a
+  Pixel 9 Pro XL with the production build, `getPurchases` restores an existing purchase and
+  `getProducts` returns the localised price.
+- **Billing:** a new purchase through the bridge needs a Play Console testing track with licence
+  testers, so it isn't covered by the automated tests yet. Issues and reports are welcome.
 
 ## Develop
 
